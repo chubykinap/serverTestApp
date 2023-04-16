@@ -1,47 +1,61 @@
 #include "mainwindow.h"
 #include "ui_mainwindow.h"
 
-MainWindow::MainWindow(QWidget *parent)
+MainWindow::MainWindow(QWidget* parent)
     : QMainWindow(parent)
     , ui(new Ui::MainWindow)
 {
     ui->setupUi(this);
-
+    serverPort = -1;
+    ui->textPort->setText("8080");
     ui->textInfo->setReadOnly(true);
 }
 
 MainWindow::~MainWindow()
 {
     clearConnections();
-    serverPort = -1;
     delete ui;
 }
 
-
 void MainWindow::on_buttonStart_clicked()
 {
-    int newPort = ui->textPort->toPlainText().toInt();
-    if (serverPort == newPort){
-        QMessageBox::information(this, "Information",
-                             QString("Already listening on port %1").arg(serverPort));
+    QString newPort = ui->textPort->toPlainText();
+    if (!checkServerCredentials(newPort)) {
+        QMessageBox::warning(this, "Error", "Wrong server credentials!\r\nPlease enter correct data.");
         return;
     }
-    if (serverPort > 0){
+    if (serverPort == newPort.toInt()) {
+        QMessageBox::information(this, "Information",
+            QString("Already listening on port %1").arg(serverPort));
+        return;
+    }
+    if (serverPort > 0) {
         clearConnections();
     }
     server = new QTcpServer(this);
     connect(server, SIGNAL(newConnection()), this, SLOT(newConnection()));
-    serverPort = newPort;
-    if (!server->listen(QHostAddress::Any, serverPort)){
+    serverPort = newPort.toInt();
+    if (!server->listen(QHostAddress::Any, serverPort)) {
         QMessageBox::warning(this, "Error",
-                             QString("Cannot start listening to port %1").arg(serverPort));
-    } else{
+            QString("Cannot start listening to port %1").arg(serverPort));
+    } else {
         writeLog("Started server.", NULL);
     }
     ui->textInfo->append(QString("Running on " + getHostIp() + ":%1").arg(serverPort));
 }
 
-void MainWindow::newConnection(){
+bool MainWindow::checkServerCredentials(QString port)
+{
+    bool parsed;
+    int intPort = port.toInt(&parsed);
+    if (!parsed || intPort < 1 || intPort > 65535) {
+        return false;
+    }
+    return true;
+}
+
+void MainWindow::newConnection()
+{
     QTcpSocket* client = server->nextPendingConnection();
     clientSockets.append(client);
     connect(client, &QTcpSocket::readyRead, this, &MainWindow::readClient);
@@ -50,18 +64,54 @@ void MainWindow::newConnection(){
     client->write("Hello, client!");
 }
 
-void MainWindow::readClient(){
-    QTcpSocket* client = (QTcpSocket*) sender();
-    QString info = "From " + client->peerAddress().toString().remove(0,7) +
-            ":" + QString::number(client->peerPort()) + ":";
+void MainWindow::readClient()
+{
+    QTcpSocket* client = (QTcpSocket*)sender();
+
+    QByteArray buffer;
+    QDataStream stream(client);
+    stream.setVersion(QDataStream::Qt_5_9);
+    stream >> buffer;
+    QString info = "From " + client->peerAddress().toString().remove(0, 7) + ":" + QString::number(client->peerPort()) + ":";
     ui->textInfo->append(info);
-    QByteArray text = client->readAll();
-    writeLog(text, client);
-    ui->textInfo->append(text);
+
+    QString header = buffer.mid(0, 128);
+    QString type = header.split(",").first().split(":").last();
+    if (type == "message") {
+        ui->textInfo->append(buffer.mid(128));
+    } else {
+        ui->textInfo->append("Got new image.");
+        QPixmap map;
+
+        QStringList list;
+        list << "png"
+             << "bmp"
+             << "jpg"
+             << "jpeg";
+        QString fileEx = header.split(",").last().split(":").last();
+        switch (list.indexOf(fileEx)) {
+        case 0:
+            map.loadFromData(buffer.mid(128), "PNG");
+            break;
+        case 1:
+            map.loadFromData(buffer.mid(128), "BMP");
+            break;
+        case 2:
+            map.loadFromData(buffer.mid(128), "JPG");
+            break;
+        case 3:
+            map.loadFromData(buffer.mid(128), "JPEG");
+            break;
+        }
+
+        form.setImage(map);
+        form.show();
+    }
 }
 
-void MainWindow::disconnectClient(){
-    QTcpSocket* client = (QTcpSocket*) sender();
+void MainWindow::disconnectClient()
+{
+    QTcpSocket* client = (QTcpSocket*)sender();
     clientSockets.removeOne(client);
     disconnect(client, &QTcpSocket::readyRead, this, &MainWindow::readClient);
     disconnect(client, &QTcpSocket::disconnected, this, &MainWindow::disconnectClient);
@@ -76,15 +126,15 @@ void MainWindow::on_buttonSend_clicked()
     ui->textMessage->setText("");
 }
 
-void MainWindow::writeLog(QString text, QTcpSocket* socket){
+void MainWindow::writeLog(QString text, QTcpSocket* socket)
+{
     QFile file("logfile.txt");
-    if (file.open(QIODevice::Append)){
+    if (file.open(QIODevice::Append)) {
         QString address;
-        if (socket == NULL){
+        if (socket == NULL) {
             address = QString(getHostIp() + ":%1").arg(serverPort);
         } else {
-            address = socket->peerAddress().toString() +
-                    ":" + QString::number(socket->peerPort());
+            address = socket->peerAddress().toString().remove(0, 7) + ":" + QString::number(socket->peerPort());
         }
         QTextStream stream(&file);
         stream << QDate::currentDate().toString(Qt::SystemLocaleShortDate)
@@ -94,22 +144,23 @@ void MainWindow::writeLog(QString text, QTcpSocket* socket){
     } else {
         QMessageBox::warning(this, "Error", "Cannot write to log file");
     }
+    file.close();
 }
 
-QString MainWindow::getHostIp(){
-    QHostInfo host = QHostInfo::fromName(QHostInfo::localHostName());
-
-    return host.addresses().first().toString();
+QString MainWindow::getHostIp()
+{
+    return QHostInfo::fromName(QHostInfo::localHostName()).addresses().first().toString();
 }
 
-void MainWindow::clearConnections(){
-    foreach (QTcpSocket* socket,  clientSockets) {
+void MainWindow::clearConnections()
+{
+    foreach (QTcpSocket* socket, clientSockets) {
         disconnect(socket, &QTcpSocket::readyRead, this, &MainWindow::readClient);
         disconnect(socket, &QTcpSocket::disconnected, this, &MainWindow::disconnectClient);
     }
     clientSockets.clear();
     disconnect(server, SIGNAL(newConnection()), this, SLOT(newConnection()));
     server->close();
-    server = NULL;
+    delete server;
     writeLog("Server stopped.", NULL);
 }

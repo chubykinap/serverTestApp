@@ -1,29 +1,33 @@
 #ifndef MAINWINDOW_H
 #define MAINWINDOW_H
 
+#include "imageform.h"
+#include <QDate>
+#include <QFile>
+#include <QFileInfo>
+#include <QHostInfo>
 #include <QMainWindow>
+#include <QMessageBox>
 #include <QTcpServer>
 #include <QTcpSocket>
-#include <QFile>
 #include <QTextStream>
-#include <QMessageBox>
-#include <QDate>
-#include <QHostInfo>
 
 QT_BEGIN_NAMESPACE
-namespace Ui { class MainWindow; }
+namespace Ui {
+class MainWindow;
+}
 QT_END_NAMESPACE
 
-class MainWindow : public QMainWindow
-{
+class MainWindow : public QMainWindow {
     Q_OBJECT
 
 public:
-    MainWindow(QWidget *parent = nullptr);
+    MainWindow(QWidget* parent = nullptr);
     ~MainWindow();
 
 private slots:
     void on_buttonStart_clicked();
+    bool checkServerCredentials(QString port);
     void newConnection();
     void readClient();
     void disconnectClient();
@@ -33,9 +37,10 @@ private slots:
     void clearConnections();
 
 private:
-    Ui::MainWindow *ui;
-    QTcpServer *server;
-    QList<QTcpSocket *> clientSockets;
+    Ui::MainWindow* ui;
+    QTcpServer* server;
+    QList<QTcpSocket*> clientSockets;
     int serverPort;
+    imageForm form;
 };
 #endif // MAINWINDOW_H
