@@ -7,7 +7,8 @@ MainWindow::MainWindow(QWidget* parent)
 {
     ui->setupUi(this);
     serverPort = -1;
-    ui->textPort->setText("8080");
+    dataToRead = -1;
+
     ui->textInfo->setReadOnly(true);
 }
 
@@ -15,6 +16,7 @@ MainWindow::~MainWindow()
 {
     clearConnections();
     delete ui;
+    form.close();
 }
 
 void MainWindow::on_buttonStart_clicked()
@@ -66,19 +68,32 @@ void MainWindow::newConnection()
 
 void MainWindow::readClient()
 {
+    QMutex mutex;
+
     QTcpSocket* client = (QTcpSocket*)sender();
+    QByteArray reading = client->readAll();
 
-    QByteArray buffer;
-    QDataStream stream(client);
-    stream.setVersion(QDataStream::Qt_5_9);
-    stream >> buffer;
-    QString info = "From " + client->peerAddress().toString().remove(0, 7) + ":" + QString::number(client->peerPort()) + ":";
-    ui->textInfo->append(info);
+    mutex.lock();
+    if (dataToRead < 0) {
+        messageHeader = reading.mid(0, 128);
+        dataToRead = messageHeader.split(",").takeAt(1).split(":").last().toInt();
+        buffer.append(reading.mid(128));
+    } else {
+        buffer.append(reading);
+    }
+    if (dataToRead > 0 && buffer.size() < dataToRead) {
+        ui->textInfo->append("Waiting for full message from client...");
+        reading.clear();
+        return;
+    }
 
-    QString header = buffer.mid(0, 128);
-    QString type = header.split(",").first().split(":").last();
-    if (type == "message") {
-        ui->textInfo->append(buffer.mid(128));
+    ui->textInfo->append("From " + client->peerAddress().toString().remove(0, 7)
+        + ":" + QString::number(client->peerPort()) + ":");
+    QString messageType = messageHeader.split(",").first().split(":").last();
+
+    if (messageType == "message") {
+        ui->textInfo->append(buffer);
+        writeLog(buffer, client);
     } else {
         ui->textInfo->append("Got new image.");
         QPixmap map;
@@ -88,25 +103,30 @@ void MainWindow::readClient()
              << "bmp"
              << "jpg"
              << "jpeg";
-        QString fileEx = header.split(",").last().split(":").last();
+        QString fileEx = messageHeader.split(",").last().split(":").last().split(".").last();
         switch (list.indexOf(fileEx)) {
         case 0:
-            map.loadFromData(buffer.mid(128), "PNG");
+            map.loadFromData(buffer, "PNG");
             break;
         case 1:
-            map.loadFromData(buffer.mid(128), "BMP");
+            map.loadFromData(buffer, "BMP");
             break;
         case 2:
-            map.loadFromData(buffer.mid(128), "JPG");
+            map.loadFromData(buffer, "JPG");
             break;
         case 3:
-            map.loadFromData(buffer.mid(128), "JPEG");
+            map.loadFromData(buffer, "JPEG");
             break;
         }
 
         form.setImage(map);
         form.show();
+
+        writeLog("Got new image.", client);
     }
+    buffer.clear();
+    dataToRead = -1;
+    mutex.unlock();
 }
 
 void MainWindow::disconnectClient()
@@ -120,6 +140,9 @@ void MainWindow::disconnectClient()
 
 void MainWindow::on_buttonSend_clicked()
 {
+    if (ui->textMessage->toPlainText() == "") {
+        return;
+    }
     foreach (QTcpSocket* socket, clientSockets) {
         socket->write(ui->textMessage->toPlainText().toUtf8());
     }

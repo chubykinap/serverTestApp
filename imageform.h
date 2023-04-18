@@ -1,6 +1,7 @@
 #ifndef IMAGEFORM_H
 #define IMAGEFORM_H
 
+#include <QPainter>
 #include <QWidget>
 
 namespace Ui {
@@ -14,10 +15,14 @@ public:
     explicit imageForm(QWidget* parent = nullptr);
     ~imageForm();
 public slots:
-    void setImage(QPixmap map);
+    void setImage(const QPixmap& map);
+
+private slots:
+    void paintEvent(QPaintEvent* event);
 
 private:
     Ui::imageForm* ui;
+    QPixmap image;
 };
 
 #endif // IMAGEFORM_H

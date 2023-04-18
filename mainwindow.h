@@ -8,6 +8,7 @@
 #include <QHostInfo>
 #include <QMainWindow>
 #include <QMessageBox>
+#include <QMutex>
 #include <QTcpServer>
 #include <QTcpSocket>
 #include <QTextStream>
@@ -42,5 +43,8 @@ private:
     QList<QTcpSocket*> clientSockets;
     int serverPort;
     imageForm form;
+    QByteArray buffer;
+    int dataToRead;
+    QString messageHeader;
 };
 #endif // MAINWINDOW_H
